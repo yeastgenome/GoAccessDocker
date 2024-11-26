@@ -1,0 +1,44 @@
+#!/bin/bash
+
+GOACCESS_DIR=/tmp/goaccess  # local build directory
+ACCESS_LOG=access.log       # concatenated log file
+
+S3_LOG_URI='s3://sgd-prod-elb-logs/AWSLogs/977508801820/elasticloadbalancing/us-west-2/'    # source log bucket
+S3_REPORTS_URI='s3://sgd-goaccess-reports/web/'                                             # target report bucket
+
+/usr/bin/mkdir -p $GOACCESS_DIR
+cd $GOACCESS_DIR
+/bin/cp /dev/null $ACCESS_LOG
+
+REPORT_BEGIN_DATE=$(/bin/date -d "last Sunday" +%Y%m%d)
+REPORT_END_DATE=$(/bin/date -d "$REPORT_BEGIN_DATE + 1 week" +%Y%m%d)
+LOG_DATE=$REPORT_BEGIN_DATE
+
+LOG_YEAR=$(/bin/date -d $LOG_DATE_DATE +%Y)
+LOG_MONTH=$(/bin/date -d $LOG_DATE_DATE +%m)
+LOG_DAY=$(/bin/date -d $LOG_DATE +%d)
+
+while [ "$LOG_DATE" != $REPORT_END_DATE ]; do 
+    echo $LOG_DATE
+
+    /usr/bin/aws s3 sync ${S3_LOG_URI}/${LOG_YEAR}/${LOG_MONTH}/${LOG_DAY}/ .
+    REPORT_BEGIN_MONTH=$(/bin/date -d "last Sunday" +%m)
+    REPORT_BEGIN_DAY=$(/bin/date -d "last Sunday" +%d)
+    REPORT_END_YEAR=$(/bin/date -d "next Saturday" +%Y)
+    REPORT_END_MONTH=$(/bin/date -d "next Saturday" +%m)
+    REPORT_END_DAY=$(/bin/date -d "next Saturday" +%d)
+
+    LOG_DATE=$(/bin/date -I -d "$LOG_DATE + 1 day" +%Y%m%d)
+done
+
+# zcat *.gz will sometimes fail for large number of *.gz files
+# use this loop as a workaround
+
+for logfile in *.gz
+do
+    /usr/bin/zcat $logfile >> $ACCESS_LOG
+done
+
+/usr/bin/goaccess access.log --log-format=AWSELB -a \
+    -o ${REPORT_BEGIN_YEAR}-${REPORT_BEGIN_MONTH}-${REPORT_BEGIN_DAY}-goaccess-report.html
+
