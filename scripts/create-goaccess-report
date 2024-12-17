@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/bash -x
 
 GOACCESS_DIR=/tmp/goaccess  # local build directory
 ACCESS_LOG=access.log       # concatenated log file
@@ -10,24 +10,68 @@ S3_REPORTS_URI='s3://sgd-goaccess-reports/web/'                                 
 cd $GOACCESS_DIR
 /bin/cp /dev/null $ACCESS_LOG
 
-REPORT_BEGIN_DATE=$(/bin/date -d "last Sunday" +%Y%m%d)
-REPORT_END_DATE=$(/bin/date -d "$REPORT_BEGIN_DATE + 1 week" +%Y%m%d)
-LOG_DATE=$REPORT_BEGIN_DATE
+OPTSTRING="b:e:"
 
-LOG_YEAR=$(/bin/date -d $LOG_DATE_DATE +%Y)
-LOG_MONTH=$(/bin/date -d $LOG_DATE_DATE +%m)
+while getopts ${OPTSTRING} opt; do
+  case ${opt} in
+    b)
+      if [[ $OPTARG =~ [0-9]{8}$ && ! $OPTARG =~ [0-9]{9} ]]; then
+        REPORT_BEGIN_DATE=$OPTARG
+      else
+        echo "$0: invalid begin date.  Date should be of form YYYYMMDD.  Exiting."
+        exit 1
+      fi
+      ;;
+
+    e)
+      if [[ $OPTARG =~ [0-9]{8}$ && ! $OPTARG =~ [0-9]{9} ]]; then
+        REPORT_END_DATE=$OPTARG
+      else
+        echo "$0: invalid end date.  Date should be of form YYYYMMDD.  Exiting."
+        exit 1
+      fi
+      ;;
+
+    :)
+      echo "Option -${OPTARG} requires an argument."
+      exit 1
+      ;;
+
+    ?)
+      echo "Invalid option: -${opt}."
+      exit 1
+      ;;
+  esac
+done
+
+TODAY=$(/bin/date +%Y%m%d)
+
+if [[ -z $REPORT_BEGIN_DATE ]]
+  REPORT_BEGIN_DATE=$(/bin/date -d "last Sunday" +%Y%m%d)
+;;
+
+if [[ -z $REPORT_END_DATE ]]
+  REPORT_END_DATE=$(/bin/date -d "last Sunday +6 days" +%Y%m%d)
+fi
+;;
+
+if [ $TODAY < $REPORT_END_DATE ]; then
+    REPORT_END_DATE=$TODAY
+fi
+
+REPORT_FILE=${REPORT_BEGIN_DATE}-goaccess-report.html
+if [ -f $REPORT_FILE ]; then
+    echo "$REPORT_FILE already exists.  Exiting."
+    exit 1
+fi
+
+LOG_DATE=$REPORT_BEGIN_DATE
+LOG_YEAR=$(/bin/date -d $LOG_DATE +%Y)
+LOG_MONTH=$(/bin/date -d $LOG_DATE +%m)
 LOG_DAY=$(/bin/date -d $LOG_DATE +%d)
 
-while [ "$LOG_DATE" != $REPORT_END_DATE ]; do 
-    echo $LOG_DATE
-
+while [ $LOG_DATE != $REPORT_END_DATE ]; do 
     /usr/bin/aws s3 sync ${S3_LOG_URI}/${LOG_YEAR}/${LOG_MONTH}/${LOG_DAY}/ .
-    REPORT_BEGIN_MONTH=$(/bin/date -d "last Sunday" +%m)
-    REPORT_BEGIN_DAY=$(/bin/date -d "last Sunday" +%d)
-    REPORT_END_YEAR=$(/bin/date -d "next Saturday" +%Y)
-    REPORT_END_MONTH=$(/bin/date -d "next Saturday" +%m)
-    REPORT_END_DAY=$(/bin/date -d "next Saturday" +%d)
-
     LOG_DATE=$(/bin/date -I -d "$LOG_DATE + 1 day" +%Y%m%d)
 done
 
@@ -39,6 +83,6 @@ do
     /usr/bin/zcat $logfile >> $ACCESS_LOG
 done
 
-/usr/bin/goaccess access.log --log-format=AWSELB -a \
-    -o ${REPORT_BEGIN_YEAR}-${REPORT_BEGIN_MONTH}-${REPORT_BEGIN_DAY}-goaccess-report.html
+/usr/bin/goaccess access.log --log-format=AWSELB -a -o $REPORT_FILE
 
+exit 0
